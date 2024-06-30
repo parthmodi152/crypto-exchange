@@ -1,4 +1,4 @@
-package main
+package orderbook
 
 import (
 	"fmt"
@@ -79,8 +79,6 @@ func (ob *OrderBook) PlaceMarketOrder(o *Order) []Match {
 		for _, limit := range ob.Bids() {
 			limitMatches := limit.Fill(o)
 			matches = append(matches, limitMatches...)
-
-			fmt.Println(limitMatches)
 
 			if len(limit.Orders) == 0 {
 				limitsToClear = append(limitsToClear, limit)

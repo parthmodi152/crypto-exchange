@@ -1,6 +1,8 @@
-package main
+package orderbook
 
-import "fmt"
+import (
+	"fmt"
+)
 
 type Match struct {
 	Ask        *Order
