@@ -1,33 +1,82 @@
 package main
 
 import (
-	"fmt"
+	"reflect"
 	"testing"
 )
 
-func TestLimit(t *testing.T) {
-	l := NewLimit(10_000)
+func assert(t *testing.T, got, want any) {
+	t.Helper()
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestPlaceLimitOrder(t *testing.T) {
+	ob := NewOrderBook()
+
+	sellOrderA := NewOrder(false, 10)
+	sellOrderB := NewOrder(false, 5)
+
+	ob.PlaceLimitOrder(10_000, sellOrderA)
+	ob.PlaceLimitOrder(9_000, sellOrderB)
+
+	assert(t, len(ob.asks), 2)
+}
+
+func TestPlaceMarketOrder(t *testing.T) {
+	ob := NewOrderBook()
+
+	sellOrder := NewOrder(false, 20)
+	ob.PlaceLimitOrder(10_000, sellOrder)
+
+	buyOrder := NewOrder(true, 10)
+	matches := ob.PlaceMarketOrder(buyOrder)
+
+	assert(t, len(matches), 1)
+	assert(t, len(ob.asks), 1)
+	assert(t, ob.AskTotalVolume(), 10.0)
+	assert(t, matches[0].Ask, sellOrder)
+	assert(t, matches[0].Bid, buyOrder)
+	assert(t, matches[0].Price, 10_000.0)
+	assert(t, matches[0].SizeFilled, 10.0)
+	assert(t, buyOrder.isFilled(), true)
+}
+
+func TestPlaceMarketOrderMultiFill(t *testing.T) {
+	ob := NewOrderBook()
+
 	buyOrderA := NewOrder(true, 5)
 	buyOrderB := NewOrder(true, 8)
 	buyOrderC := NewOrder(true, 10)
+	buyOrderD := NewOrder(true, 1)
 
-	l.AddOrder(buyOrderA)
-	l.AddOrder(buyOrderB)
-	l.AddOrder(buyOrderC)
+	ob.PlaceLimitOrder(5_000, buyOrderC)
+	ob.PlaceLimitOrder(5_000, buyOrderD)
+	ob.PlaceLimitOrder(9_000, buyOrderB)
+	ob.PlaceLimitOrder(10_000, buyOrderA)
 
-	l.DeleteOrder(buyOrderB)
+	assert(t, ob.BidTotalVolume(), 24.0)
 
-	fmt.Println(l)
+	sellOrder := NewOrder(false, 20)
+	matches := ob.PlaceMarketOrder(sellOrder)
+
+	assert(t, len(matches), 3)
+	assert(t, ob.BidTotalVolume(), 4.0)
+	assert(t, len(ob.bids), 1)
 }
 
-func TestOrderBook(t *testing.T) {
+func TestCancelOrder(t *testing.T) {
 	ob := NewOrderBook()
 
-	buyOrderA := NewOrder(true, 10)
-	buyOrderB := NewOrder(true, 2000)
+	buyOrder := NewOrder(true, 4)
+	ob.PlaceLimitOrder(10_000, buyOrder)
 
-	ob.PlaceOrder(18_000, buyOrderA)
-	ob.PlaceOrder(19_000, buyOrderB)
+	assert(t, ob.BidTotalVolume(), 4.0)
+	assert(t, len(ob.bids), 1)
 
-	fmt.Println(ob.Bids)
+	ob.CancelOrder(buyOrder)
+
+	assert(t, ob.BidTotalVolume(), 0.0)
+	assert(t, len(ob.bids), 0)
 }
