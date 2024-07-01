@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/labstack/echo/v4"
 	"github.com/parthmodi152/crypto-exchange/orderbook"
@@ -10,10 +12,12 @@ import (
 
 func main() {
 	e := echo.New()
+	e.HTTPErrorHandler = httpErrorHandler
 
 	ex := NewExchange()
 
 	e.GET("/book/:market", ex.handleGetOrderBook)
+	e.DELETE("/order/:id", ex.handleCancelOrder)
 	e.POST("/order", ex.handlePlaceOrder)
 	e.Start(":3000")
 }
@@ -51,6 +55,31 @@ type PlaceOrderRequest struct {
 	Price  float64   `json:"price"`
 }
 
+type Order struct {
+	ID        int64   `json:"id"`
+	Size      float64 `json:"size"`
+	Price     float64 `json:"price"`
+	Bid       bool    `json:"bid"`
+	Timestamp int64   `json:"timestamp"`
+}
+
+type OrderBookData struct {
+	TotalBidVolume float64
+	TotalAskVolume float64
+	Asks           []*Order
+	Bids           []*Order
+}
+
+func httpErrorHandler(err error, c echo.Context) {
+	fmt.Println(err)
+}
+
+type MatchedOrder struct {
+	Price float64 `json:"price"`
+	Size  float64 `json:"size"`
+	ID    int64   `json:"id"`
+}
+
 func (ex *Exchange) handlePlaceOrder(c echo.Context) error {
 	var placeOrderData PlaceOrderRequest
 
@@ -69,25 +98,28 @@ func (ex *Exchange) handlePlaceOrder(c echo.Context) error {
 
 	if placeOrderData.Type == MarketOrder {
 		matches := ob.PlaceMarketOrder(order)
+		matchedOrders := make([]*MatchedOrder, len(matches))
 
-		return c.JSON(http.StatusOK, map[string]any{"matches": len(matches)})
+		for i, match := range matches {
+
+			var id int64
+			if order.Bid {
+				id = match.Ask.ID
+			} else {
+				id = match.Bid.ID
+			}
+
+			matchedOrders[i] = &MatchedOrder{
+				ID:    id,
+				Size:  match.SizeFilled,
+				Price: match.Price,
+			}
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{"matches": matchedOrders})
 	}
 
 	return c.JSON(http.StatusBadRequest, "Invalid order type")
-}
-
-type Order struct {
-	Size      float64 `json:"size"`
-	Price     float64 `json:"price"`
-	Bid       bool    `json:"bid"`
-	Timestamp int64   `json:"timestamp"`
-}
-
-type OrderBookData struct {
-	TotalBidVolume float64
-	TotalAskVolume float64
-	Asks           []*Order
-	Bids           []*Order
 }
 
 func (ex *Exchange) handleGetOrderBook(c echo.Context) error {
@@ -109,6 +141,7 @@ func (ex *Exchange) handleGetOrderBook(c echo.Context) error {
 		for _, order := range limit.Orders {
 
 			o := &Order{
+				ID:        order.ID,
 				Size:      order.Size,
 				Price:     limit.Price,
 				Bid:       order.Bid,
@@ -123,6 +156,7 @@ func (ex *Exchange) handleGetOrderBook(c echo.Context) error {
 		for _, order := range limit.Orders {
 
 			o := &Order{
+				ID:        order.ID,
 				Size:      order.Size,
 				Price:     limit.Price,
 				Bid:       order.Bid,
@@ -134,4 +168,22 @@ func (ex *Exchange) handleGetOrderBook(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, orderbookData)
+}
+
+func (ex *Exchange) handleCancelOrder(c echo.Context) error {
+	idstr := c.Param("id")
+	id, err := strconv.ParseInt(idstr, 10, 64)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, "Invalid order ID")
+	}
+
+	ob := ex.OrderBook[MarketETH]
+	order := ob.Orders[id]
+
+	if order != nil {
+		ob.CancelOrder(order)
+		return c.JSON(http.StatusOK, "Order cancelled")
+	}
+
+	return c.JSON(http.StatusBadRequest, "Order not found")
 }
